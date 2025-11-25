@@ -137,7 +137,11 @@ async def consultar_cpf(request: CPFRequest):
         await page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
         
         # Tentar fechar cookie banner se aparecer (não bloqueante)
-        page.locator("button:has-text('Aceitar'), .cc-btn.cc-dismiss").click(timeout=2000).catch(lambda _: None)
+        # Tentar fechar cookie banner se aparecer (não bloqueante)
+        try:
+            await page.locator("button:has-text('Aceitar'), .cc-btn.cc-dismiss").click(timeout=2000)
+        except:
+            pass
         
         # Verificar se não há resultados
         if await page.get_by_text("Nenhum registro encontrado").is_visible():
