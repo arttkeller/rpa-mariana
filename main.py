@@ -113,9 +113,9 @@ async def consultar_cpf(request: CPFRequest):
             pass
 
         # Click on CPF filter in the sidebar
-        # Increase timeout here specifically as this is where it's failing
+        # Use specific ID to avoid strict mode violation (multiple buttons with "CPF" in name)
         try:
-             await page.get_by_role("button", name="CPF").click(timeout=60000)
+             await page.locator("#btn-cpf-1").click(timeout=60000)
         except Exception as e:
              # Debugging: Take a screenshot if it fails (will be saved in container, hard to see but good practice)
              # await page.screenshot(path="error_click_cpf.png")
