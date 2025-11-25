@@ -59,7 +59,8 @@ async def consultar_cpf(request: CPFRequest):
         raise HTTPException(status_code=500, detail="Browser not initialized")
 
     # Create a new context for each request to ensure isolation, but reuse the browser
-    context = await browser.new_context()
+    # Set a large viewport to avoid responsive layout issues (hidden sidebar)
+    context = await browser.new_context(viewport={"width": 1920, "height": 1080})
     page = await context.new_page()
     
     # Enable resource blocking
@@ -67,18 +68,25 @@ async def consultar_cpf(request: CPFRequest):
 
     try:
         logger.info(f"Starting search for CPF: {cpf}")
-        await page.goto("https://portaldatransparencia.gov.br/servidores/consulta?ordenarPor=nome&direcao=asc", timeout=60000)
+        # Increase timeout for initial load
+        await page.goto("https://portaldatransparencia.gov.br/servidores/consulta?ordenarPor=nome&direcao=asc", timeout=90000)
         
         # Accept cookies if the banner appears (fast check)
         try:
             cookie_btn = page.locator("button", has_text="Aceitar").or_(page.locator(".cc-btn.cc-dismiss"))
-            if await cookie_btn.is_visible(timeout=2000):
+            if await cookie_btn.is_visible(timeout=5000):
                 await cookie_btn.click()
         except:
             pass
 
         # Click on CPF filter in the sidebar
-        await page.get_by_role("button", name="CPF").click()
+        # Increase timeout here specifically as this is where it's failing
+        try:
+             await page.get_by_role("button", name="CPF").click(timeout=60000)
+        except Exception as e:
+             # Debugging: Take a screenshot if it fails (will be saved in container, hard to see but good practice)
+             # await page.screenshot(path="error_click_cpf.png")
+             raise Exception(f"Failed to click CPF button. Page title: {await page.title()}. Error: {e}")
         
         # Wait for the sidebar input to appear and type CPF
         await page.locator("input#cpf").fill(cpf_clean)
@@ -90,7 +98,7 @@ async def consultar_cpf(request: CPFRequest):
         
         # Wait for results
         try:
-            await page.wait_for_selector("#tabela-resultado", timeout=30000)
+            await page.wait_for_selector("#tabela-resultado", timeout=60000)
         except:
              return {"result": "pesquisar", "message": "Timeout waiting for results"}
         
@@ -105,21 +113,20 @@ async def consultar_cpf(request: CPFRequest):
             
             # Click on the "eye" icon in the "Detalhar" column
             try:
-                await row_with_aposentado.locator("a .fa-eye").first.click(timeout=2000)
+                await row_with_aposentado.locator("a .fa-eye").first.click(timeout=5000)
             except:
                 try:
-                    await row_with_aposentado.locator("a[title*='Detalhar']").click(timeout=2000)
+                    await row_with_aposentado.locator("a[title*='Detalhar']").click(timeout=5000)
                 except:
                         await row_with_aposentado.locator("td").last.locator("a").click()
             
             # Wait for details page
-            await page.wait_for_load_state("domcontentloaded") # Faster than networkidle
+            await page.wait_for_load_state("domcontentloaded") 
             
             # Click "Histórico dos vínculos com o poder executivo federal"
             try:
-                await page.get_by_text("Histórico dos vínculos com o poder executivo federal").click(timeout=5000)
+                await page.get_by_text("Histórico dos vínculos com o poder executivo federal").click(timeout=10000)
             except:
-                 # Sometimes it might be already open or different layout
                  pass
             
             # Extract retirement date
