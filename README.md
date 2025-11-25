@@ -121,7 +121,11 @@ Certifique-se de que seu projeto está no GitHub (ou outro git provider). O proj
 1.  Vá para a aba **Environment**.
 2.  A aplicação está configurada para usar a porta definida na variável `PORT` ou `8000` por padrão.
 3.  No Easypanel, verifique a configuração **HTTP Port** (ou App Service Port). Defina como `8000`.
-4.  Clique em **Save** e depois em **Deploy**.
+4.  **[IMPORTANTE] Configurar Proxy (Recomendado)**: Para evitar bloqueios do WAF/CloudFront, configure um proxy residencial:
+    - `PROXY_SERVER`: URL do proxy (ex: `http://proxy.provider.com:8080` ou `socks5://proxy.provider.com:1080`)
+    - `PROXY_USERNAME`: Usuário do proxy (se necessário)
+    - `PROXY_PASSWORD`: Senha do proxy (se necessário)
+5.  Clique em **Save** e depois em **Deploy**.
 
 ### Passo 6: Obter a URL
 Após o deploy finalizar (pode levar alguns minutos na primeira vez para baixar o navegador), o Easypanel gerará uma URL pública para sua API (ex: `https://rpa-mariana.seu-dominio.com`).

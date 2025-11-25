@@ -5,10 +5,16 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 import re
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Proxy configuration from environment variables
+PROXY_SERVER = os.getenv("PROXY_SERVER")  # e.g., "http://proxy.example.com:8080"
+PROXY_USERNAME = os.getenv("PROXY_USERNAME")
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
 # Global variables for Playwright
 playwright_instance = None
@@ -65,10 +71,21 @@ async def consultar_cpf(request: CPFRequest):
     # Create a new context for each request to ensure isolation, but reuse the browser
     # Set a large viewport to avoid responsive layout issues (hidden sidebar)
     # Set a real User-Agent to avoid WAF blocking
-    context = await browser.new_context(
-        viewport={"width": 1920, "height": 1080},
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
+    context_options = {
+        "viewport": {"width": 1920, "height": 1080},
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    # Add proxy configuration if provided
+    if PROXY_SERVER:
+        proxy_config = {"server": PROXY_SERVER}
+        if PROXY_USERNAME and PROXY_PASSWORD:
+            proxy_config["username"] = PROXY_USERNAME
+            proxy_config["password"] = PROXY_PASSWORD
+        context_options["proxy"] = proxy_config
+        logger.info(f"Using proxy: {PROXY_SERVER}")
+    
+    context = await browser.new_context(**context_options)
     
     # Manually inject stealth scripts to bypass bot detection
     await context.add_init_script("""
