@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from playwright.async_api import async_playwright, Browser
 from datetime import datetime
 from contextlib import asynccontextmanager
+from playwright_stealth import stealth_async
 import re
 import logging
 
@@ -21,7 +22,11 @@ async def lifespan(app: FastAPI):
     playwright_instance = await async_playwright().start()
     browser = await playwright_instance.chromium.launch(
         headless=True, 
-        args=["--no-sandbox", "--disable-setuid-sandbox"]
+        args=[
+            "--no-sandbox", 
+            "--disable-setuid-sandbox",
+            "--disable-blink-features=AutomationControlled" # Hide automation flag
+        ]
     )
     yield
     logger.info("Shutting down Playwright...")
@@ -60,8 +65,15 @@ async def consultar_cpf(request: CPFRequest):
 
     # Create a new context for each request to ensure isolation, but reuse the browser
     # Set a large viewport to avoid responsive layout issues (hidden sidebar)
-    context = await browser.new_context(viewport={"width": 1920, "height": 1080})
+    # Set a real User-Agent to avoid WAF blocking
+    context = await browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
     page = await context.new_page()
+    
+    # Apply stealth to hide Playwright traces
+    await stealth_async(page)
     
     # Enable resource blocking
     await page.route("**/*", block_resources)
