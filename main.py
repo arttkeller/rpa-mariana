@@ -124,8 +124,13 @@ async def consultar_cpf(request: CPFRequest):
         # Wait for the sidebar input to appear and type CPF
         await page.locator("input#cpf").fill(cpf_clean)
         
-        if await page.get_by_role("button", name="Adicionar").is_visible():
-                await page.get_by_role("button", name="Adicionar").click()
+        # Click "Adicionar" button - find the one within the opened CPF filter panel
+        # The panel should be visible after clicking the CPF button
+        cpf_panel = page.locator("#btn-cpf-1").locator("..").locator("..")  # Navigate up to parent container
+        adicionar_btn = cpf_panel.locator("button.btn-adicionar").first
+        
+        if await adicionar_btn.is_visible():
+            await adicionar_btn.click()
 
         await page.get_by_role("button", name="Consultar").click()
         
