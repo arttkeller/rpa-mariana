@@ -134,14 +134,20 @@ async def consultar_cpf(request: CPFRequest):
 
         await page.get_by_role("button", name="Consultar").click()
         
-        # Wait for results
+        # Wait for results - increase timeout and add better error handling
         try:
-            await page.wait_for_selector("#tabela-resultado", timeout=60000)
-        except:
-             return {"result": "pesquisar", "message": "Timeout waiting for results"}
+            # Wait for either the results table or the "no results" message
+            await page.wait_for_selector("#tabela-resultado, .mensagem-aviso", timeout=90000)
+            logger.info("Results section loaded successfully")
+        except Exception as e:
+            logger.error(f"Timeout waiting for results. Page URL: {page.url}")
+            # Instead of returning immediately, let's check if there's a "no results" message
+            pass
         
         # Check if there are results. If "Nenhum registro encontrado", return "pesquisar".
-        if await page.get_by_text("Nenhum registro encontrado").is_visible():
+        no_results = page.get_by_text("Nenhum registro encontrado")
+        if await no_results.is_visible():
+            logger.info("No records found for this CPF")
             return {"result": "pesquisar", "message": "CPF not found or no data"}
 
         row_with_aposentado = page.locator("tr", has_text="Aposentado").first
