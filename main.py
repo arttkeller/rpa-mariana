@@ -40,7 +40,8 @@ def parse_date(date_str: str):
         return None
 
 async def block_resources(route):
-    if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+    # Do not block stylesheets as it breaks layout/visibility of elements
+    if route.request.resource_type in ["image", "media", "font"]:
         await route.abort()
     else:
         await route.continue_()
