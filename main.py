@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from playwright.async_api import async_playwright, Browser
 from datetime import datetime
 from contextlib import asynccontextmanager
-from playwright_stealth import stealth_async
 import re
 import logging
 
@@ -70,10 +69,15 @@ async def consultar_cpf(request: CPFRequest):
         viewport={"width": 1920, "height": 1080},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
-    page = await context.new_page()
     
-    # Apply stealth to hide Playwright traces
-    await stealth_async(page)
+    # Manually inject stealth scripts to bypass bot detection
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+    """)
+    
+    page = await context.new_page()
     
     # Enable resource blocking
     await page.route("**/*", block_resources)
