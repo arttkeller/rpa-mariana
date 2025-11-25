@@ -125,7 +125,6 @@ async def consultar_cpf(request: CPFRequest):
 
     try:
         logger.info(f"Starting search for CPF: {cpf_clean}")
-        
         # OTIMIZAÇÃO 1: Navegação direta para a URL de busca com os parâmetros
         search_url = (
             f"https://portaldatransparencia.gov.br/servidores/consulta?"
@@ -136,7 +135,6 @@ async def consultar_cpf(request: CPFRequest):
         
         await page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
         
-        # Tentar fechar cookie banner se aparecer (não bloqueante)
         # Tentar fechar cookie banner se aparecer (não bloqueante)
         try:
             await page.locator("button:has-text('Aceitar'), .cc-btn.cc-dismiss").click(timeout=2000)
@@ -152,7 +150,8 @@ async def consultar_cpf(request: CPFRequest):
         row_with_aposentado = page.locator("tr:has-text('Aposentado')").first
         
         if not await row_with_aposentado.is_visible():
-            return {"result": "pesquisar", "message": "Status is not 'Aposentado'"}
+            # Se encontrou o CPF mas NÃO tem vínculo como Aposentado (ex: Ativo), descarta.
+            return {"result": "descarte", "message": "Status is not 'Aposentado'"}
         
         logger.info("Status 'Aposentado' found.")
         
