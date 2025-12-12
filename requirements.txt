@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+playwright
+playwright-stealth
+pdfplumber
+python-multipart
+loguru
+httpx
+pytesseract
+pdf2image
+Pillow
