@@ -486,19 +486,20 @@ async def consultar_receita_federal(request: ReceitaFederalRequest):
         # Click captcha checkbox (hCaptcha or similar)
         # The captcha is usually an iframe, we need to wait for it
         try:
-            # Try to find and click the captcha checkbox
-            captcha_frame = page.frame_locator('iframe[title*="captcha"], iframe[src*="hcaptcha"], iframe[src*="recaptcha"]')
-            await captcha_frame.locator('div[role="checkbox"], .check').click(timeout=10000)
+            # Try to find and click the captcha checkbox - use first() to avoid strict mode
+            # The first iframe is the checkbox, the second is the challenge
+            captcha_iframe = page.frame_locator('iframe[title*="checkbox"], iframe[title*="caixa de seleção"]').first
+            await captcha_iframe.locator('div[role="checkbox"], #checkbox').click(timeout=10000)
             logger.info("Clicked captcha checkbox")
             
             # Wait a bit for captcha to resolve
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
         except Exception as captcha_error:
             logger.warning(f"Captcha interaction issue: {captcha_error}")
             # Try clicking submit anyway - some cases don't have captcha
         
-        # Click the submit/search button
-        submit_button = page.locator('input[type="submit"], button[type="submit"], input[value*="Consultar"]')
+        # Click the submit/search button - use specific ID to avoid ambiguity
+        submit_button = page.locator('#id_submit, input[name="Enviar"]').first
         await submit_button.click()
         logger.info("Clicked submit button")
         
