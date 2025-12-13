@@ -398,11 +398,200 @@ async def extract_pdf_url(request: PDFUrlRequest):
         logger.error(f"Error processing PDF from URL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/version")
 async def version():
-    return {"version": "3.1", "features": ["ocr", "pdfplumber", "async-webhook"]}
+    return {"version": "3.2", "features": ["ocr", "pdfplumber", "async-webhook", "receita-federal"]}
+
+# ============================================
+# RECEITA FEDERAL - CPF Status Check
+# ============================================
+
+class ReceitaFederalRequest(BaseModel):
+    cpf: str
+    data_nascimento: str  # Format: DD/MM/YYYY
+
+@app.post("/consultar-receita")
+async def consultar_receita_federal(request: ReceitaFederalRequest):
+    """
+    Consulta situação cadastral do CPF na Receita Federal.
+    Retorna se o titular está falecido ou regular.
+    
+    Args:
+        cpf: CPF com 11 dígitos
+        data_nascimento: Data de nascimento no formato DD/MM/YYYY
+    
+    Returns:
+        situacao_cadastral: REGULAR, PENDENTE DE REGULARIZAÇÃO, SUSPENSA, CANCELADA POR ÓBITO, TITULAR FALECIDO, NULA
+        nome: Nome do titular
+        success: True se a consulta foi bem sucedida
+    """
+    cpf = request.cpf
+    cpf_clean = re.sub(r"\D", "", cpf)
+    
+    if len(cpf_clean) != 11:
+        raise HTTPException(status_code=400, detail="Invalid CPF format - must have 11 digits")
+    
+    # Validate date format
+    data_nascimento = request.data_nascimento
+    if not re.match(r"\d{2}/\d{2}/\d{4}", data_nascimento):
+        raise HTTPException(status_code=400, detail="Invalid date format - use DD/MM/YYYY")
+    
+    if not browser:
+        raise HTTPException(status_code=500, detail="Browser not initialized")
+    
+    context_options = {
+        "viewport": {"width": 1280, "height": 720},
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "java_script_enabled": True,
+        "ignore_https_errors": True,
+    }
+    
+    if PROXY_SERVER:
+        proxy_config = {"server": PROXY_SERVER}
+        if PROXY_USERNAME and PROXY_PASSWORD:
+            proxy_config["username"] = PROXY_USERNAME
+            proxy_config["password"] = PROXY_PASSWORD
+        context_options["proxy"] = proxy_config
+    
+    context = await browser.new_context(**context_options)
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    """)
+    
+    page = await context.new_page()
+    page.set_default_timeout(60000)
+    page.set_default_navigation_timeout(60000)
+    
+    try:
+        logger.info(f"Consulting Receita Federal for CPF: {cpf_clean}")
+        
+        # URL da consulta de situação cadastral
+        rf_url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
+        
+        await page.goto(rf_url, wait_until="domcontentloaded", timeout=60000)
+        logger.info("Loaded Receita Federal page")
+        
+        # Wait for form to be ready
+        await page.wait_for_selector('input[name="txtCPF"]', timeout=30000)
+        
+        # Fill CPF field
+        await page.fill('input[name="txtCPF"]', cpf_clean)
+        logger.info(f"Filled CPF: {cpf_clean}")
+        
+        # Fill birth date field
+        await page.fill('input[name="txtDataNascimento"]', data_nascimento)
+        logger.info(f"Filled birth date: {data_nascimento}")
+        
+        # Click captcha checkbox (hCaptcha or similar)
+        # The captcha is usually an iframe, we need to wait for it
+        try:
+            # Try to find and click the captcha checkbox
+            captcha_frame = page.frame_locator('iframe[title*="captcha"], iframe[src*="hcaptcha"], iframe[src*="recaptcha"]')
+            await captcha_frame.locator('div[role="checkbox"], .check').click(timeout=10000)
+            logger.info("Clicked captcha checkbox")
+            
+            # Wait a bit for captcha to resolve
+            await asyncio.sleep(2)
+        except Exception as captcha_error:
+            logger.warning(f"Captcha interaction issue: {captcha_error}")
+            # Try clicking submit anyway - some cases don't have captcha
+        
+        # Click the submit/search button
+        submit_button = page.locator('input[type="submit"], button[type="submit"], input[value*="Consultar"]')
+        await submit_button.click()
+        logger.info("Clicked submit button")
+        
+        # Wait for result page
+        await page.wait_for_load_state("domcontentloaded")
+        await asyncio.sleep(1)  # Small delay for content to render
+        
+        # Get page content to extract result
+        page_content = await page.content()
+        
+        # Extract situação cadastral
+        situacao_pattern = r"Situação Cadastral[:\s]*<[^>]*>([^<]+)"
+        situacao_match = re.search(situacao_pattern, page_content, re.IGNORECASE)
+        
+        # Alternative pattern for plain text
+        if not situacao_match:
+            situacao_pattern_alt = r"Situação Cadastral[:\s]*(\w+(?:\s+\w+)*)"
+            situacao_match = re.search(situacao_pattern_alt, page_content, re.IGNORECASE)
+        
+        # Try to find common status indicators
+        situacao_cadastral = None
+        if "TITULAR FALECIDO" in page_content.upper():
+            situacao_cadastral = "TITULAR FALECIDO"
+        elif "CANCELADA POR ÓBITO" in page_content.upper():
+            situacao_cadastral = "CANCELADA POR ÓBITO"
+        elif "REGULAR" in page_content.upper() and "SITUAÇÃO CADASTRAL" in page_content.upper():
+            situacao_cadastral = "REGULAR"
+        elif "PENDENTE" in page_content.upper():
+            situacao_cadastral = "PENDENTE DE REGULARIZAÇÃO"
+        elif "SUSPENSA" in page_content.upper():
+            situacao_cadastral = "SUSPENSA"
+        elif "NULA" in page_content.upper():
+            situacao_cadastral = "NULA"
+        elif situacao_match:
+            situacao_cadastral = situacao_match.group(1).strip()
+        
+        # Extract name
+        nome_pattern = r"Nome[:\s]*<[^>]*>([^<]+)"
+        nome_match = re.search(nome_pattern, page_content, re.IGNORECASE)
+        nome = nome_match.group(1).strip() if nome_match else None
+        
+        # Check if consultation was successful
+        if situacao_cadastral:
+            is_deceased = situacao_cadastral.upper() in ["TITULAR FALECIDO", "CANCELADA POR ÓBITO"]
+            
+            logger.info(f"Receita Federal result for {cpf_clean}: {situacao_cadastral}")
+            return {
+                "cpf": cpf_clean,
+                "situacao_cadastral": situacao_cadastral,
+                "nome": nome,
+                "is_deceased": is_deceased,
+                "data_consulta": datetime.now().isoformat(),
+                "success": True
+            }
+        else:
+            # Check for error messages
+            if "CPF não encontrado" in page_content or "dados informados não conferem" in page_content.lower():
+                return {
+                    "cpf": cpf_clean,
+                    "situacao_cadastral": None,
+                    "nome": None,
+                    "is_deceased": False,
+                    "data_consulta": datetime.now().isoformat(),
+                    "success": False,
+                    "error": "CPF não encontrado ou dados não conferem"
+                }
+            
+            return {
+                "cpf": cpf_clean,
+                "situacao_cadastral": None,
+                "nome": None,
+                "is_deceased": False,
+                "data_consulta": datetime.now().isoformat(),
+                "success": False,
+                "error": "Could not extract status from page"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error consulting Receita Federal for CPF {cpf_clean}: {e}")
+        return {
+            "cpf": cpf_clean,
+            "situacao_cadastral": None,
+            "nome": None,
+            "is_deceased": False,
+            "data_consulta": datetime.now().isoformat(),
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        await context.close()
+
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Starting RPA Service v3.1 - Async Support")
+    logger.info("Starting RPA Service v3.2 - With Receita Federal Support")
     uvicorn.run(app, host="0.0.0.0", port=8000)
